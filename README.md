@@ -24,7 +24,3 @@ This is a monorepo containing:
 2. Install frontend dependencies: `cd apps/frontend-nextjs && npm install`
 3. Run the backend: `cd apps/backend-springboot && mvn spring-boot:run`
 4. Run the frontend: `cd apps/frontend-nextjs && npm run dev`
-
-## Development Roadmap
-
-See [Project Requirements Document](./docs/Project_Requirements_Document.md) for detailed implementation plan.
