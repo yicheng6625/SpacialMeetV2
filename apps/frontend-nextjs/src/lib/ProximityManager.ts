@@ -1,21 +1,24 @@
 import * as Phaser from 'phaser';
 import { WebSocketManager } from './WebSocketManager';
 import { PlayerManager } from './PlayerManager';
+import { CallManager } from './CallManager';
 
 export class ProximityManager {
   private scene: Phaser.Scene;
   private wsManager: WebSocketManager;
   private playerManager: PlayerManager;
+  private callManager: CallManager;
   private currentPlayer: Phaser.Physics.Arcade.Sprite;
   private playerId: string;
   private proximityCards: Map<string, Phaser.GameObjects.Container> = new Map();
   private R_PROXIMITY = 2 * 32; // 2 tiles
   private activeCalls: Set<string> = new Set();
 
-  constructor(scene: Phaser.Scene, wsManager: WebSocketManager, playerManager: PlayerManager, currentPlayer: Phaser.Physics.Arcade.Sprite, playerId: string) {
+  constructor(scene: Phaser.Scene, wsManager: WebSocketManager, playerManager: PlayerManager, callManager: CallManager, currentPlayer: Phaser.Physics.Arcade.Sprite, playerId: string) {
     this.scene = scene;
     this.wsManager = wsManager;
     this.playerManager = playerManager;
+    this.callManager = callManager;
     this.currentPlayer = currentPlayer;
     this.playerId = playerId;
   }
@@ -110,7 +113,7 @@ export class ProximityManager {
   }
 
   private initiateCall(toId: string, callType: string) {
-    this.wsManager.send("request_call", { from: this.playerId, to: toId, callType });
+    this.callManager.initiateCall(toId, callType);
   }
 
   private initiateChat(toId: string) {
