@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { WebSocketManager } from '../lib/WebSocketManager';
 import { PlayerManager } from '../lib/PlayerManager';
 import { ProximityManager } from '../lib/ProximityManager';
+import { CallManager } from '../lib/CallManager';
 
 class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -10,16 +11,8 @@ class GameScene extends Phaser.Scene {
   private wsManager!: WebSocketManager;
   private playerManager!: PlayerManager;
   private proximityManager!: ProximityManager;
+  private callManager!: CallManager;
   private playerId: string;
-  private activeCalls: Map<string, string> = new Map(); // id -> callType
-  private incomingCallModal: Phaser.GameObjects.Container | null = null;
-  private currentIncomingCall: {
-    from: string;
-    fromName: string;
-    callType: string;
-  } | null = null;
-  private peerConnections: Map<string, RTCPeerConnection> = new Map();
-  private localStream: MediaStream | null = null;
   private camera!: Phaser.Cameras.Scene2D.Camera;
   private sceneReady: boolean = false;
 
@@ -97,8 +90,11 @@ class GameScene extends Phaser.Scene {
     // Create current player immediately
     this.createCurrentPlayer();
 
+    // Initialize CallManager
+    this.callManager = new CallManager(this, this.wsManager, this.playerId);
+
     // Initialize ProximityManager after player is created
-    this.proximityManager = new ProximityManager(this, this.wsManager, this.playerManager, this.player, this.playerId);
+    this.proximityManager = new ProximityManager(this, this.wsManager, this.playerManager, this.callManager, this.player, this.playerId);
 
     // Build colliders from object layer
     const collLayer = map.getObjectLayer("Colliders");
@@ -194,16 +190,16 @@ class GameScene extends Phaser.Scene {
         this.handleUserJoin(msg.data);
         break;
       case "incoming_call":
-        this.handleIncomingCall(msg.data);
+        this.callManager.handleIncomingCall(msg.data);
         break;
       case "call_response":
-        this.handleCallResponse(msg.data);
+        this.callManager.handleCallResponse(msg.data);
         break;
       case "webrtc_signal":
-        this.handleWebRTCSignal(msg.data);
+        this.callManager.handleWebRTCSignal(msg.data);
         break;
       case "call_ended":
-        this.handleCallEnded(msg.data);
+        this.callManager.handleCallEnded(msg.data);
         break;
     }
   }
@@ -233,9 +229,7 @@ class GameScene extends Phaser.Scene {
     const { id } = data;
     this.playerManager.removePlayer(id);
     this.proximityManager.destroyProximityCard(id);
-    if (this.activeCalls.has(id)) {
-      this.endCall(id, "user_left");
-    }
+    this.callManager.endCall(id, "user_left");
   }
 
   handleUserJoin(data: any) {
@@ -289,244 +283,11 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  private handleIncomingCall(data: any) {
-    const { from, fromName, callType } = data;
-    this.currentIncomingCall = { from, fromName, callType };
-
-    this.incomingCallModal = this.add.container(640, 320);
-    const bg = this.add.rectangle(0, 0, 300, 150, 0xffffff);
-    bg.setStrokeStyle(2, 0x000000);
-    this.incomingCallModal.add(bg);
-
-    const title = this.add.text(
-      0,
-      -50,
-      `${fromName} is calling (${callType})`,
-      { fontSize: "16px", color: "#000" }
-    );
-    title.setOrigin(0.5);
-    this.incomingCallModal.add(title);
-
-    const acceptBtn = this.add.text(-50, 20, "Accept", {
-      fontSize: "14px",
-      color: "#00ff00",
-    });
-    acceptBtn.setInteractive();
-    acceptBtn.on("pointerdown", () => this.acceptCall());
-    this.incomingCallModal.add(acceptBtn);
-
-    const declineBtn = this.add.text(50, 20, "Decline", {
-      fontSize: "14px",
-      color: "#ff0000",
-    });
-    declineBtn.setInteractive();
-    declineBtn.on("pointerdown", () => this.declineCall());
-    this.incomingCallModal.add(declineBtn);
-
-    this.time.delayedCall(20000, () => {
-      if (this.currentIncomingCall) {
-        this.declineCall();
-      }
-    });
-  }
-
-  private async acceptCall() {
-    if (this.currentIncomingCall) {
-      const { from, callType } = this.currentIncomingCall;
-      try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: callType === "video",
-        });
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        this.peerConnections.set(from, pc);
-
-        this.localStream
-          .getTracks()
-          .forEach((track) => pc.addTrack(track, this.localStream!));
-
-        pc.onicecandidate = (event) => {
-          if (event.candidate) {
-            this.wsManager.send("webrtc_signal", {
-              from: this.playerId,
-              to: from,
-              data: { type: "candidate", candidate: event.candidate },
-            });
-          }
-        };
-
-        pc.ontrack = (event) => {
-          // TODO: Handle remote stream
-        };
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        this.wsManager.send("webrtc_signal", {
-          from: this.playerId,
-          to: from,
-          data: offer,
-        });
-
-        this.wsManager.send("call_response", {
-          from,
-          to: this.playerId,
-          accepted: true,
-        });
-        this.hideIncomingCallModal();
-        this.activeCalls.set(from, callType);
-        this.proximityManager.addActiveCall(from);
-      } catch (error) {
-        console.error("Error accepting call:", error);
-        this.declineCall();
-      }
-    }
-  }
-
-  private declineCall() {
-    if (this.currentIncomingCall) {
-      this.wsManager.send("call_response", {
-        from: this.currentIncomingCall.from,
-        to: this.playerId,
-        accepted: false,
-      });
-      this.hideIncomingCallModal();
-    }
-  }
-
-  private hideIncomingCallModal() {
-    if (this.incomingCallModal) {
-      this.incomingCallModal.destroy();
-      this.incomingCallModal = null;
-    }
-    this.currentIncomingCall = null;
-  }
-
-  private async handleCallResponse(data: any) {
-    const { from, accepted } = data;
-    if (accepted) {
-      try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: true,
-        });
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
-        this.peerConnections.set(from, pc);
-
-        this.localStream
-          .getTracks()
-          .forEach((track) => pc.addTrack(track, this.localStream!));
-
-        pc.onicecandidate = (event) => {
-          if (event.candidate) {
-            this.wsManager.send("webrtc_signal", {
-              from: this.playerId,
-              to: from,
-              data: { type: "candidate", candidate: event.candidate },
-            });
-          }
-        };
-
-        pc.ontrack = (event) => {
-          // TODO: Handle remote stream
-        };
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        this.wsManager.send("webrtc_signal", {
-          from: this.playerId,
-          to: from,
-          data: offer,
-        });
-      } catch (error) {
-        console.error("Error starting call:", error);
-      }
-      this.activeCalls.set(from, "video");
-      this.proximityManager.addActiveCall(from);
-    }
-  }
-
-  private async handleWebRTCSignal(data: any) {
-    const { from, data: signalData } = data;
-    let pc = this.peerConnections.get(from);
-    if (!pc) {
-      pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
-      this.peerConnections.set(from, pc);
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          this.wsManager.send("webrtc_signal", {
-            from: this.playerId,
-            to: from,
-            data: { type: "candidate", candidate: event.candidate },
-          });
-        }
-      };
-
-      pc.ontrack = (event) => {
-        // TODO: Handle remote stream
-      };
-    }
-
-    if (signalData.type === "offer") {
-      await pc.setRemoteDescription(new RTCSessionDescription(signalData));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      this.wsManager.send("webrtc_signal", {
-        from: this.playerId,
-        to: from,
-        data: answer,
-      });
-    } else if (signalData.type === "answer") {
-      await pc.setRemoteDescription(new RTCSessionDescription(signalData));
-    } else if (signalData.type === "candidate") {
-      await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
-    }
-  }
-
-  private handleCallEnded(data: any) {
-    const { from, to } = data;
-    const pc = this.peerConnections.get(from) || this.peerConnections.get(to);
-    if (pc) {
-      pc.close();
-      this.peerConnections.delete(from);
-      this.peerConnections.delete(to);
-    }
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
-      this.localStream = null;
-    }
-  }
-
-  private endCall(toId: string, reason: string) {
-    this.wsManager.send("call_ended", { from: this.playerId, to: toId, reason });
-    this.activeCalls.delete(toId);
-    const pc = this.peerConnections.get(toId);
-    if (pc) {
-      pc.close();
-      this.peerConnections.delete(toId);
-    }
-    if (this.activeCalls.size === 0 && this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
-      this.localStream = null;
-    }
-  }
-
   public cleanup() {
     this.wsManager.disconnect();
     this.playerManager.destroy();
     this.proximityManager.destroy();
-    this.peerConnections.forEach((pc) => pc.close());
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop());
-      this.localStream = null;
-    }
-    this.activeCalls.clear();
+    this.callManager.cleanup();
   }
 }
 
