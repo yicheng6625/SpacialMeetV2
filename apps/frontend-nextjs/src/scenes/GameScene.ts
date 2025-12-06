@@ -1,17 +1,19 @@
 import * as Phaser from 'phaser';
-import { WebSocketManager } from '../lib/WebSocketManager';
+import { WebSocketManager, WebSocketMessage } from '../lib/WebSocketManager';
 import { PlayerManager } from '../lib/PlayerManager';
 import { ProximityManager } from '../lib/ProximityManager';
 import { CallManager } from '../lib/CallManager';
+import { AnimationManager, Direction } from '../lib/AnimationManager';
+import { MovementManager } from '../lib/MovementManager';
 
 class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasdKeys!: any;
   private wsManager!: WebSocketManager;
   private playerManager!: PlayerManager;
   private proximityManager!: ProximityManager;
   private callManager!: CallManager;
+  private animationManager!: AnimationManager;
+  private movementManager!: MovementManager;
   private playerId: string;
   private camera!: Phaser.Cameras.Scene2D.Camera;
   private sceneReady: boolean = false;
@@ -33,9 +35,13 @@ class GameScene extends Phaser.Scene {
       "/tilesets/textures/Modern_Office_Black_Shadow_32x32.png"
     );
 
+    // Initialize AnimationManager
+    this.animationManager = new AnimationManager(this);
+    this.animationManager.preload();
+
     // Add load error handling
-    this.load.on("loaderror", (file: any) => {
-      console.error("Failed to load file:", file.key, file.src);
+    this.load.on("loaderror", (file: unknown) => {
+      console.error("Failed to load file:", file);
     });
   }
 
@@ -43,9 +49,12 @@ class GameScene extends Phaser.Scene {
     this.camera = this.cameras.main;
     this.camera.setZoom(1);
 
+    // Create animations
+    this.animationManager.create();
+
     // Initialize managers
     this.wsManager = new WebSocketManager(this.playerId, this.name);
-    this.playerManager = new PlayerManager(this);
+    this.playerManager = new PlayerManager(this, this.animationManager);
     // ProximityManager will be initialized after player creation
 
     // Connect WebSocket
@@ -55,7 +64,7 @@ class GameScene extends Phaser.Scene {
     this.wsManager.connect(wsUrl);
 
     // Set message handler
-    this.wsManager.setOnMessage((msg: any) => {
+    this.wsManager.setOnMessage((msg: WebSocketMessage) => {
       this.handleMessage(msg);
     });
 
@@ -76,19 +85,13 @@ class GameScene extends Phaser.Scene {
     map.createLayer("DesksBack", [rb, mo], 0, 0)!.setDepth(20);
     map.createLayer("DeskItems_Back", [rb, mo], 0, 0)!.setDepth(25);
 
-    this.cursors = this.input.keyboard!.createCursorKeys();
-    // Add WASD keys
-    this.wasdKeys = this.input.keyboard!.addKeys({
-      W: Phaser.Input.Keyboard.KeyCodes.W,
-      S: Phaser.Input.Keyboard.KeyCodes.S,
-      A: Phaser.Input.Keyboard.KeyCodes.A,
-      D: Phaser.Input.Keyboard.KeyCodes.D,
-    });
-
-    this.sceneReady = true;
-
     // Create current player immediately
     this.createCurrentPlayer();
+
+    // Initialize remaining managers
+    this.movementManager = new MovementManager(this, this.player, this.animationManager, this.playerId, this.wsManager);
+
+    this.sceneReady = true;
 
     // Initialize CallManager
     this.callManager = new CallManager(this, this.wsManager, this.playerId);
@@ -101,21 +104,23 @@ class GameScene extends Phaser.Scene {
     const solids = this.physics.add.staticGroup();
 
     if (collLayer && collLayer.objects) {
-      collLayer.objects.forEach((obj: any) => {
-        const cx = obj.x + (obj.width || 0) / 2;
-        const cy = obj.y + (obj.height || 0) / 2;
+      collLayer.objects.forEach((obj: unknown) => {
+        const o = obj as { x: number; y: number; width?: number; height?: number };
+        const cx = o.x + (o.width || 0) / 2;
+        const cy = o.y + (o.height || 0) / 2;
 
         const rect = this.add.rectangle(
           cx,
           cy,
-          obj.width || 1,
-          obj.height || 1,
+          o.width || 1,
+          o.height || 1,
           0x000000,
           0
         );
         this.physics.add.existing(rect, true);
         const body = rect.body as Phaser.Physics.Arcade.StaticBody;
-        body.setSize(obj.width, obj.height);
+        body.setSize(o.width, o.height);
+        body.setOffset(0, 0);
         solids.add(rect);
       });
     }
@@ -123,7 +128,10 @@ class GameScene extends Phaser.Scene {
     // Add physics to player
     if (this.player) {
       const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-      playerBody.setSize(16, 12).setOffset(16, 30);
+      // Adjust body size for 16x16 sprite (scaled up or not?)
+      // Assuming 16x16 sprite, we might want to scale it up to look good in 32x32 tiles
+      this.player.setScale(2); 
+      playerBody.setSize(10, 8).setOffset(3, 24); // Adjust hitbox for 16x32 sprite scaled 2x
       playerBody.setCollideWorldBounds(true);
       this.physics.add.collider(this.player, solids);
     }
@@ -150,27 +158,28 @@ class GameScene extends Phaser.Scene {
   }
 
   private createCurrentPlayer() {
-    const graphics = this.add.graphics();
-    graphics.fillStyle(0x00ff00, 1);
-    graphics.fillCircle(24, 24, 12);
-    graphics.generateTexture("playerAvatar", 48, 48);
-    graphics.destroy();
-
+    // Use 'Adam' as default until server assigns one
     this.player = this.physics.add.sprite(
       5 * 32 + 16,
       5 * 32 + 16,
-      "playerAvatar"
+      "Adam_idle"
     );
+    this.player.setScale(1.5); // Match other players' visual scale
+    
+    // Play initial idle animation
+    const animKey = this.animationManager.getAnimationKey('Adam', 'idle', 'down');
+    this.player.play(animKey);
 
     const label = this.add.text(this.player.x, this.player.y - 20, this.name, {
       fontSize: "12px",
       color: "#000",
+      backgroundColor: "#ffffff80"
     });
     label.setOrigin(0.5);
     this.playerManager.getPlayerLabels().set(this.playerId, label);
   }
 
-  handleMessage(msg: any) {
+  handleMessage(msg: WebSocketMessage) {
     if (!this.sceneReady) return;
 
     switch (msg.type) {
@@ -204,37 +213,50 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  handleSpaceJoined(data: any) {
-    const { spawnX, spawnY, existingUsers } = data;
+  handleSpaceJoined(data: Record<string, unknown>) {
+    const spawnX = data.spawnX as number;
+    const spawnY = data.spawnY as number;
+    const sprite = data.sprite as string;
+    const existingUsers = data.existingUsers as Array<{id: string; name: string; x: number; y: number; sprite: string}>;
     this.player.setPosition(spawnX, spawnY);
+    
+    if (sprite) {
+      // Check if sprite is one of the new ones, otherwise default to Adam
+      const validSprites = ['Adam', 'Alex', 'Amelia', 'Bob'];
+      const spriteName = validSprites.includes(sprite) ? sprite : 'Adam';
+      
+      // Store sprite name on player object for reference
+      this.player.setData('spriteName', spriteName);
+      this.player.play(this.animationManager.getAnimationKey(spriteName, 'idle', 'down'));
+    }
 
-    existingUsers.forEach((user: any) => {
-      this.playerManager.addPlayer(user.id, user.name, user.x, user.y);
+    existingUsers.forEach((user) => {
+      this.playerManager.addPlayer(user.id, user.name, user.x, user.y, user.sprite);
     });
   }
 
-  handleMovementRejected(data: any) {
-    const { x, y } = data;
+  handleMovementRejected(data: Record<string, unknown>) {
+    const { x, y } = data as { x: number; y: number };
     this.player.setPosition(x, y);
   }
 
-  handleMovement(data: any) {
-    const { id, x, y } = data;
+  handleMovement(data: Record<string, unknown>) {
+    const { id, x, y, direction } = data as { id: string; x: number; y: number; direction: string };
     if (id !== this.playerId) {
-      this.playerManager.updatePlayerPosition(id, x, y);
+      this.playerManager.updatePlayerPosition(id, x, y, direction as Direction);
     }
   }
 
-  handleUserLeft(data: any) {
-    const { id } = data;
+  handleUserLeft(data: Record<string, unknown>) {
+    const { id } = data as { id: string };
     this.playerManager.removePlayer(id);
     this.proximityManager.destroyProximityCard(id);
     this.callManager.endCall(id, "user_left");
   }
 
-  handleUserJoin(data: any) {
-    const { id, name, x, y } = data;
-    this.playerManager.addPlayer(id, name, x, y);
+  handleUserJoin(data: Record<string, unknown>) {
+    const { id, name, x, y, sprite } = data as { id: string; name: string; x: number; y: number; sprite: string };
+    this.playerManager.addPlayer(id, name, x, y, sprite);
   }
 
   update() {
@@ -246,40 +268,21 @@ class GameScene extends Phaser.Scene {
       label.setPosition(this.player.x, this.player.y - 20);
     }
 
-    // Movement
-    let moved = false;
-    const speed = 100;
-    if (this.player.body) {
-      const body = this.player.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(0);
-
-      if (this.wasdKeys.W.isDown) {
-        body.setVelocityY(-speed);
-        moved = true;
-      } else if (this.wasdKeys.S.isDown) {
-        body.setVelocityY(speed);
-        moved = true;
-      }
-
-      if (this.wasdKeys.A.isDown) {
-        body.setVelocityX(-speed);
-        moved = true;
-      } else if (this.wasdKeys.D.isDown) {
-        body.setVelocityX(speed);
-        moved = true;
-      }
-    }
+    // Handle movement
+    const { moved } = this.movementManager.update();
 
     if (moved && this.wsManager) {
-      this.wsManager.send("move", {
-        x: Math.round(this.player.x),
-        y: Math.round(this.player.y),
-      });
+      this.movementManager.sendMovement();
     }
 
     // Update proximity
     if (this.proximityManager) {
       this.proximityManager.update();
+    }
+
+    // Update remote player positions and animations
+    if (this.playerManager) {
+      this.playerManager.update();
     }
   }
 
