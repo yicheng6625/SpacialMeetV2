@@ -21,6 +21,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, Player> players = new ConcurrentHashMap<>();
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+    private static final String[] AVAILABLE_SPRITES = {"Adam", "Alex", "Amelia", "Bob"};
+    private final java.util.Random random = new java.util.Random();
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -68,6 +70,11 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         int spawnX = 160; // 5 * 32 + 16 (center of tile)
         int spawnY = 160; // 5 * 32 + 16 (center of tile)
         Player player = new Player(playerId, playerName != null ? playerName : "User", spawnX, spawnY);
+        
+        // Assign random sprite
+        String sprite = AVAILABLE_SPRITES[random.nextInt(AVAILABLE_SPRITES.length)];
+        player.setSprite(sprite);
+
         players.put(playerId, player);
         sessions.put(playerId, session);
         
@@ -78,6 +85,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 Map<String, Object> userData = new HashMap<>();
                 userData.put("id", p.getId());
                 userData.put("name", p.getName());
+                userData.put("sprite", p.getSprite());
                 userData.put("x", p.getTileX());
                 userData.put("y", p.getTileY());
                 return userData;
@@ -87,6 +95,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         Map<String, Object> responseData = new HashMap<>();
         responseData.put("spawnX", spawnX);
         responseData.put("spawnY", spawnY);
+        responseData.put("sprite", sprite);
         responseData.put("existingUsers", existingUsers);
         
         Message response = new Message("space-joined", responseData);
@@ -96,6 +105,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         Map<String, Object> joinData = new HashMap<>();
         joinData.put("id", playerId);
         joinData.put("name", player.getName());
+        joinData.put("sprite", player.getSprite());
         joinData.put("x", spawnX);
         joinData.put("y", spawnY);
         
@@ -118,6 +128,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         Map<String, Object> data = (Map<String, Object>) msg.getData();
         int targetX = ((Number) data.get("x")).intValue();
         int targetY = ((Number) data.get("y")).intValue();
+        String direction = (String) data.get("direction");
         
         Player player = players.get(playerId);
         if (player == null) return;
@@ -136,6 +147,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             movementData.put("id", playerId);
             movementData.put("x", targetX);
             movementData.put("y", targetY);
+            movementData.put("direction", direction);
             
             Message movement = new Message("movement", movementData);
             broadcast(movement, null);
