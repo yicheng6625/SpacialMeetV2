@@ -27,12 +27,12 @@ export class CallManager {
     }
   }
 
-  initiateChat(toId: string) {
+  initiateChat() {
     // TODO: Implement chat
   }
 
-  handleIncomingCall(data: any) {
-    const { from, fromName, callType } = data;
+  handleIncomingCall(data: Record<string, unknown>) {
+    const { from, fromName, callType } = data as { from: string; fromName: string; callType: string };
     this.currentIncomingCall = { from, fromName, callType };
 
     this.incomingCallModal = this.scene.add.container(640, 320);
@@ -87,7 +87,7 @@ export class CallManager {
           }
         };
 
-        pc.ontrack = (event) => {
+        pc.ontrack = (_event) => {
           // TODO: Handle remote stream
         };
 
@@ -130,19 +130,19 @@ export class CallManager {
     this.currentIncomingCall = null;
   }
 
-  handleCallResponse(data: any) {
-    const { from, accepted } = data;
+  handleCallResponse(data: Record<string, unknown>) {
+    const { accepted } = data as { accepted: boolean };
     if (accepted) {
       // Similar to acceptCall but for caller
       // Implementation needed
     }
   }
 
-  handleWebRTCSignal(data: any) {
+  handleWebRTCSignal(_data: Record<string, unknown>) {
     // Implementation
   }
 
-  handleCallEnded(data: any) {
+  handleCallEnded(_data: Record<string, unknown>) {
     // Implementation
   }
 
