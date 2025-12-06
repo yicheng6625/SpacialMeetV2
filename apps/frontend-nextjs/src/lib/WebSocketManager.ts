@@ -1,6 +1,6 @@
 export interface WebSocketMessage {
   type: string;
-  data: any;
+  data: Record<string, unknown>;
 }
 
 export class WebSocketManager {
@@ -8,6 +8,7 @@ export class WebSocketManager {
   private playerId: string;
   private name: string;
   private onMessageCallback?: (msg: WebSocketMessage) => void;
+  private messageQueue: Array<{ type: string; data: Record<string, unknown> }> = [];
 
   constructor(playerId: string, name: string) {
     this.playerId = playerId;
@@ -22,11 +23,17 @@ export class WebSocketManager {
     this.ws = new WebSocket(url);
     this.ws.onopen = () => {
       console.log("WebSocket connected successfully");
+      // Send join first
       this.send("join", {
         spaceId: "default-space",
         token: "dummy-token-" + this.playerId,
         name: this.name,
       });
+      // Then send queued messages
+      while (this.messageQueue.length > 0) {
+        const msg = this.messageQueue.shift()!;
+        this.ws!.send(JSON.stringify({ type: msg.type, data: msg.data }));
+      }
     };
     this.ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
@@ -47,9 +54,11 @@ export class WebSocketManager {
     };
   }
 
-  send(type: string, data: any) {
+  send(type: string, data: Record<string, unknown>) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type, data }));
+    } else {
+      this.messageQueue.push({ type, data });
     }
   }
 
