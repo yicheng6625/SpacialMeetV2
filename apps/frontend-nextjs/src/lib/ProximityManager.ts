@@ -91,7 +91,7 @@ export class ProximityManager {
       color: "#000",
     });
     chatBtn.setInteractive();
-    chatBtn.on("pointerdown", () => this.initiateChat(id));
+    chatBtn.on("pointerdown", () => this.initiateChat());
     card.add(chatBtn);
 
     this.proximityCards.set(id, card);
@@ -116,7 +116,7 @@ export class ProximityManager {
     this.callManager.initiateCall(toId, callType);
   }
 
-  private initiateChat(toId: string) {
+  private initiateChat() {
     // TODO: Implement chat
   }
 
