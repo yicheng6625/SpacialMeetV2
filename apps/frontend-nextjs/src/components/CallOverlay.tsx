@@ -122,25 +122,36 @@ export default function CallOverlay() {
 
 function VideoPlayer({ streamData }: { streamData: RemoteStream }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [hasVideo, setHasVideo] = useState(true);
 
+  // hasVideo 狀態變更後，依類型將 stream 掛載到正確的媒體元素
+  // 修正：音訊通話 hasVideo=false 時移除 <video>，若沒有補上 <audio> 則聲音完全中斷
   useEffect(() => {
-    if (videoRef.current && streamData.stream) {
+    if (!streamData.stream) return;
+    if (hasVideo && videoRef.current) {
       videoRef.current.srcObject = streamData.stream;
-
-      const checkVideoTracks = () => {
-        const videoTracks = streamData.stream.getVideoTracks();
-        const hasActiveVideo = videoTracks.some(
-          (track) => track.enabled && track.readyState === "live",
-        );
-        setHasVideo(hasActiveVideo);
-      };
-
-      checkVideoTracks();
-      const intervalId = setInterval(checkVideoTracks, 500);
-
-      return () => clearInterval(intervalId);
+    } else if (!hasVideo && audioRef.current) {
+      // 音訊通話無影像軌道，改用 <audio> 元素確保聲音正常播放
+      audioRef.current.srcObject = streamData.stream;
     }
+  }, [streamData.stream, hasVideo]);
+
+  // 定期偵測影像軌道是否活躍，決定顯示 video 或 audio 元素
+  useEffect(() => {
+    if (!streamData.stream) return;
+
+    const checkVideoTracks = () => {
+      const videoTracks = streamData.stream.getVideoTracks();
+      const hasActiveVideo = videoTracks.some(
+        (track) => track.enabled && track.readyState === "live",
+      );
+      setHasVideo(hasActiveVideo);
+    };
+
+    checkVideoTracks();
+    const intervalId = setInterval(checkVideoTracks, 500);
+    return () => clearInterval(intervalId);
   }, [streamData.stream]);
 
   return (
@@ -153,13 +164,17 @@ function VideoPlayer({ streamData }: { streamData: RemoteStream }) {
           className="w-full h-full object-cover"
         />
       ) : (
-        <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-          <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
-            <span className="text-white font-pixel text-2xl">
-              {streamData.peerName.charAt(0).toUpperCase()}
-            </span>
+        <>
+          {/* 音訊通話：隱藏的 <audio> 負責播放聲音，頭像卡片負責顯示 */}
+          <audio ref={audioRef} autoPlay playsInline />
+          <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+              <span className="text-white font-pixel text-2xl">
+                {streamData.peerName.charAt(0).toUpperCase()}
+              </span>
+            </div>
           </div>
-        </div>
+        </>
       )}
       <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-center py-1 font-pixel text-sm">
         {streamData.peerName}

@@ -308,6 +308,22 @@ export class CallManager {
               .getTracks()
               .forEach((track) => pc!.addTrack(track, this.localStream!));
           }
+          // 發起通話方（Caller）在此才建立 PeerConnection，
+          // 原本 initiateCall() 只發送信令而未加入 activeCalls，
+          // 補上記錄確保 ICE 狀態更新與離開房間時的通話清理能正確運作
+          if (!this.activeCalls.has(from)) {
+            const callType =
+              this.localStream && this.localStream.getVideoTracks().length > 0
+                ? "video"
+                : "audio";
+            this.activeCalls.set(from, {
+              peerId: from,
+              peerName: this.peerNames.get(from) || "Unknown",
+              callType,
+              status: "connecting",
+              startTime: Date.now(),
+            });
+          }
         }
 
         await pc.setRemoteDescription(
