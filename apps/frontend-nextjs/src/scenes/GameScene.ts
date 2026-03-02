@@ -67,22 +67,27 @@ class GameScene extends Phaser.Scene {
     // Convert tile spawn to pixel position for local player creation
     const spawnPixel = tileToPixel(spawnTilePos.tileX, spawnTilePos.tileY);
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // 強制依照頁面載入的協議決定 ws/wss，避免 HTTPS 頁面使用 ws:// 導致 Mixed Content 錯誤
+    // 即使環境變數寫的是 ws://，也會自動升級為 wss://（反之亦然）
+    const pageProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.hostname;
-    const defaultWsUrl = `${protocol}//${host}:8080`;
 
-    // Use env var if available, otherwise fallback to default
-    let wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL;
+    let wsBaseUrl: string;
+    const envWsUrl = process.env.NEXT_PUBLIC_WS_URL;
 
-    // If no env var, or if env var is localhost but we are NOT on localhost (e.g. network testing),
-    // construct URL from window location
-    if (
-      !wsBaseUrl ||
-      (wsBaseUrl.includes("localhost") &&
-        host !== "localhost" &&
-        host !== "127.0.0.1")
+    if (envWsUrl && !envWsUrl.includes("localhost")) {
+      // 使用環境變數的 host，但協議強制與頁面一致，防止 Mixed Content
+      const envHost = envWsUrl.replace(/^wss?:\/\//, "");
+      wsBaseUrl = `${pageProtocol}//${envHost}`;
+    } else if (
+      envWsUrl &&
+      (host === "localhost" || host === "127.0.0.1")
     ) {
-      wsBaseUrl = `${protocol}//${host}:8080`;
+      // 本地開發：直接使用環境變數（含 localhost）
+      wsBaseUrl = envWsUrl;
+    } else {
+      // Fallback：從 window.location 建構（本地開發未設環境變數時）
+      wsBaseUrl = `${pageProtocol}//${host}:8080`;
     }
 
     const wsUrl = `${wsBaseUrl}/ws/${this.roomId}`;
