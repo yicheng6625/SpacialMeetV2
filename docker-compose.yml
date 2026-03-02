@@ -5,13 +5,13 @@ services:
       context: ./apps/backend-springboot
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "8002:8080"
     environment:
       - PORT=8080
       # 透過 host.docker.internal 連接宿主機上由另一個 Docker 啟動的 MongoDB
       - MONGODB_URI=mongodb://host.docker.internal:27017/spatialmeet
-      - JWT_SECRET=${NWtI0DCq4qI4xb8qbNBU54HVHTZoF8P3qb9055qUDIRKJ0CEtdUuwjm0FiI6H5RY}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:admin}
+      - JWT_SECRET=NWtI0DCq4qI4xb8qbNBU54HVHTZoF8P3qb9055qUDIRKJ0CEtdUuwjm0FiI6H5RY
+      - ADMIN_PASSWORD=admin
       # CORS 允許來自 frontend 容器與本地瀏覽器的請求
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001
     extra_hosts:
@@ -30,7 +30,7 @@ services:
         - NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8080}
         - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:8080}
     ports:
-      - "3000:3000"
+      - "8003:3000"
     environment:
       - NODE_ENV=production
       # 服務端 rewrite 使用 Docker 內部服務名稱路由，避免走宿主機網路
