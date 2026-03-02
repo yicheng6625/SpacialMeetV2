@@ -18,6 +18,12 @@ ARG NEXT_PUBLIC_WS_URL=ws://localhost:8080
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
+# Next.js 的 rewrites() 在 next build 時即烘焙進 routes-manifest.json
+# 因此必須在建構階段就注入，runtime env 無效
+# Docker 環境指向服務名稱 backend，本地開發預設 localhost
+ARG NEXT_BACKEND_INTERNAL_URL=http://backend:8080
+ENV NEXT_BACKEND_INTERNAL_URL=$NEXT_BACKEND_INTERNAL_URL
+
 RUN npm run build
 
 # ===== 執行階段 =====
