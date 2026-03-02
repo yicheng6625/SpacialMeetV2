@@ -33,10 +33,38 @@ services:
         # Next.js rewrites() 在 next build 時烘焙，須以 build ARG 傳入
         # 指向 Docker 內部服務名稱，讓 Next.js server 端直接與 backend 通訊
         - NEXT_BACKEND_INTERNAL_URL=http://backend:8080
+        # TURN 伺服器設定（建構時注入，瀏覽器端 WebRTC 直接使用）
+        # TURN_EXTERNAL_IP 必須是 VPS 真實公網 IP（不可走 Cloudflare Proxy）
+        - NEXT_PUBLIC_TURN_URL=turn:${TURN_EXTERNAL_IP}:3478
+        - NEXT_PUBLIC_TURN_USER=${TURN_USER}
+        - NEXT_PUBLIC_TURN_CREDENTIAL=${TURN_PASSWORD}
     ports:
       - "8003:3000"
     environment:
       - NODE_ENV=production
     depends_on:
       - backend
+      - coturn
+    restart: unless-stopped
+
+  # ===== coturn TURN 伺服器 =====
+  # 使用 host 網路模式，確保 TURN relay 封包直接從 VPS 公網 IP 發出
+  # bridge 模式下 relay 封包源自 Docker 內部 IP，導致 ICE 無法建立
+  # host 模式下 ports 欄位無效，coturn 直接監聽宿主機的 3478 及 49152-49200 端口
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host
+    command: >
+      -n
+      --log-file=stdout
+      --lt-cred-mech
+      --fingerprint
+      --no-multicast-peers
+      --no-cli
+      --realm=r.yicheng.uk
+      --user=${TURN_USER}:${TURN_PASSWORD}
+      --external-ip=${TURN_EXTERNAL_IP}
+      --listening-port=3478
+      --min-port=49152
+      --max-port=49200
     restart: unless-stopped

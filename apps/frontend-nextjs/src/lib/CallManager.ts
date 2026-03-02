@@ -31,7 +31,30 @@ export class CallManager {
   private micEnabled = true;
   private videoEnabled = true;
   private peerNames = new Map<string, string>();
-  private iceServers: ICEServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+  // ICE 伺服器清單由 IIFE 動態建立，讓 TURN 設定可從 env vars 注入而非硬編碼
+  // NEXT_PUBLIC_TURN_* 在建構時由 Dockerfile ARG 注入，不可於 runtime 更改
+  private iceServers: ICEServer[] = (() => {
+    const servers: ICEServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ];
+
+    const turnUrl  = process.env.NEXT_PUBLIC_TURN_URL;
+    const turnUser = process.env.NEXT_PUBLIC_TURN_USER;
+    const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
+    if (turnUrl && turnUser && turnCred) {
+      // UDP 主要通道（低延遲，適合一般網路）
+      servers.push({ urls: turnUrl, username: turnUser, credential: turnCred });
+      // TCP 備用通道（穿越僅允許 TCP 443/80 的嚴格防火牆）
+      servers.push({ urls: `${turnUrl}?transport=tcp`, username: turnUser, credential: turnCred });
+      console.log(`[CallManager] TURN 伺服器已設定 → ${turnUrl}`);
+    } else {
+      console.warn("[CallManager] 未設定 TURN 伺服器，跨網路通話可能失敗（ICE 卡在 checking）");
+    }
+
+    return servers;
+  })();
 
   constructor(
     scene: Phaser.Scene,
