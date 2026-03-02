@@ -336,10 +336,12 @@ export default function RoomPage() {
       />
 
       {/* Chat Panel */}
+      {/* playerId 必須傳入玩家自身 ID（userId），而非 roomId */}
+      {/* 否則 msg.senderId === playerId 永遠為 false，自己的訊息也會顯示為他人訊息 */}
       <ChatPanel
         isOpen={showChat}
         onClose={() => setShowChat(false)}
-        playerId={roomId}
+        playerId={userId || ""}
         playerName={name}
       />
     </div>
