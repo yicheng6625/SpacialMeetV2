@@ -127,13 +127,22 @@ function VideoPlayer({ streamData }: { streamData: RemoteStream }) {
 
   // hasVideo 狀態變更後，依類型將 stream 掛載到正確的媒體元素
   // 修正：音訊通話 hasVideo=false 時移除 <video>，若沒有補上 <audio> 則聲音完全中斷
+  // 明確呼叫 .play() 是因為部分瀏覽器不會因 autoPlay 屬性自動播放，必須主動觸發
   useEffect(() => {
     if (!streamData.stream) return;
     if (hasVideo && videoRef.current) {
       videoRef.current.srcObject = streamData.stream;
+      console.log(`[CallOverlay] video srcObject 已設定 → peerId=${streamData.peerId}, tracks:`, streamData.stream.getTracks().map(t => `${t.kind}(${t.readyState})`));
+      videoRef.current.play().catch((err) => {
+        console.warn(`[CallOverlay] video.play() 失敗 → peerId=${streamData.peerId}`, err);
+      });
     } else if (!hasVideo && audioRef.current) {
       // 音訊通話無影像軌道，改用 <audio> 元素確保聲音正常播放
       audioRef.current.srcObject = streamData.stream;
+      console.log(`[CallOverlay] audio srcObject 已設定 → peerId=${streamData.peerId}, tracks:`, streamData.stream.getTracks().map(t => `${t.kind}(${t.readyState})`));
+      audioRef.current.play().catch((err) => {
+        console.warn(`[CallOverlay] audio.play() 失敗 → peerId=${streamData.peerId}`, err);
+      });
     }
   }, [streamData.stream, hasVideo]);
 
@@ -146,7 +155,13 @@ function VideoPlayer({ streamData }: { streamData: RemoteStream }) {
       const hasActiveVideo = videoTracks.some(
         (track) => track.enabled && track.readyState === "live",
       );
-      setHasVideo(hasActiveVideo);
+      // 只在狀態改變時輸出日誌，避免每 500ms 刷屏
+      setHasVideo((prev) => {
+        if (prev !== hasActiveVideo) {
+          console.log(`[CallOverlay] hasVideo 狀態切換 → peerId=${streamData.peerId}, hasVideo=${hasActiveVideo}, videoTracks=${videoTracks.length}`);
+        }
+        return hasActiveVideo;
+      });
     };
 
     checkVideoTracks();

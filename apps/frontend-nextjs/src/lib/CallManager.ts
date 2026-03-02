@@ -71,8 +71,10 @@ export class CallManager {
     callType: "audio" | "video",
     peerName?: string,
   ) {
+    console.log(`[CallManager] initiateCall → to=${toId}, type=${callType}, peerName=${peerName}`);
     try {
       this.localStream = await this.getLocalStream(callType);
+      console.log(`[CallManager] localStream tracks:`, this.localStream.getTracks().map(t => `${t.kind}(${t.readyState})`));
       this.peerNames.set(toId, peerName || "Unknown User");
 
       this.wsManager.send("request_call", {
@@ -80,6 +82,7 @@ export class CallManager {
         to: toId,
         callType,
       });
+      console.log(`[CallManager] request_call sent → from=${this.playerId}, to=${toId}`);
 
       window.dispatchEvent(new CustomEvent("callStarted"));
     } catch (error) {
@@ -170,18 +173,23 @@ export class CallManager {
     if (!this.currentIncomingCall) return;
 
     const { from, fromName, callType } = this.currentIncomingCall;
+    console.log(`[CallManager] acceptCall → from=${from}, fromName=${fromName}, type=${callType}`);
 
     try {
       this.localStream = await this.getLocalStream(callType);
+      console.log(`[CallManager] acceptCall localStream tracks:`, this.localStream.getTracks().map(t => `${t.kind}(${t.readyState})`));
+
       const pc = this.createPeerConnection(from);
       this.peerConnections.set(from, pc);
 
       this.localStream
         .getTracks()
         .forEach((track) => pc.addTrack(track, this.localStream!));
+      console.log(`[CallManager] acceptCall tracks added to PC`);
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      console.log(`[CallManager] acceptCall offer created, sdpType=${offer.type}`);
 
       this.wsManager.send("webrtc_signal", {
         from: this.playerId,
@@ -194,6 +202,7 @@ export class CallManager {
         to: this.playerId,
         accepted: true,
       });
+      console.log(`[CallManager] acceptCall offer + call_response sent`);
 
       this.hideIncomingCallModal();
 
@@ -220,18 +229,24 @@ export class CallManager {
 
   private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    console.log(`[CallManager] createPeerConnection → peerId=${peerId}`);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`[CallManager] ICE candidate generated → to=${peerId}, type=${event.candidate.type}, protocol=${event.candidate.protocol}`);
         this.wsManager.send("webrtc_signal", {
           from: this.playerId,
           to: peerId,
           data: { type: "candidate", candidate: event.candidate.toJSON() },
         });
+      } else {
+        // null candidate 代表本地端 ICE 蒐集完成
+        console.log(`[CallManager] ICE gathering complete → peerId=${peerId}`);
       }
     };
 
     pc.oniceconnectionstatechange = () => {
+      console.log(`[CallManager] ICE connection state changed → peerId=${peerId}, state=${pc.iceConnectionState}`);
       const callState = this.activeCalls.get(peerId);
       if (callState) {
         switch (pc.iceConnectionState) {
@@ -250,11 +265,20 @@ export class CallManager {
       }
     };
 
+    // 監聽 SDP 協商狀態，有助於診斷 offer/answer 交換流程
+    pc.onsignalingstatechange = () => {
+      console.log(`[CallManager] signaling state changed → peerId=${peerId}, state=${pc.signalingState}`);
+    };
+
     pc.ontrack = (event) => {
+      console.log(`[CallManager] ontrack fired → peerId=${peerId}, kind=${event.track.kind}, readyState=${event.track.readyState}, streams.length=${event.streams.length}`);
       const stream = event.streams[0];
       if (stream) {
+        console.log(`[CallManager] remote stream tracks:`, stream.getTracks().map(t => `${t.kind}(${t.readyState}, enabled=${t.enabled})`));
         this.remoteStreams.set(peerId, stream);
         this.createVideoElement(peerId, stream);
+      } else {
+        console.warn(`[CallManager] ontrack fired 但沒有可用的 stream → peerId=${peerId}`);
       }
     };
 
@@ -263,6 +287,7 @@ export class CallManager {
 
   private createVideoElement(peerId: string, stream: MediaStream) {
     const peerName = this.peerNames.get(peerId) || "Unknown User";
+    console.log(`[CallManager] createVideoElement → peerId=${peerId}, peerName=${peerName}, tracks:`, stream.getTracks().map(t => `${t.kind}(${t.readyState})`));
     window.dispatchEvent(
       new CustomEvent("remoteStreamAdded", {
         detail: { peerId, stream, peerName },
@@ -288,6 +313,7 @@ export class CallManager {
 
   handleCallResponse(data: Record<string, unknown>) {
     const { from, accepted } = data as { from: string; accepted: boolean };
+    console.log(`[CallManager] handleCallResponse → from=${from}, accepted=${accepted}`);
     if (!accepted) this.cleanupCall(from);
   }
 
@@ -296,17 +322,21 @@ export class CallManager {
       from: string;
       data: { type: string; sdp?: string; candidate?: RTCIceCandidateInit };
     };
+    console.log(`[CallManager] handleWebRTCSignal → from=${from}, type=${signalData.type}`);
 
     try {
       if (signalData.type === "offer") {
+        console.log(`[CallManager] 收到 offer → from=${from}`);
         let pc = this.peerConnections.get(from);
         if (!pc) {
           pc = this.createPeerConnection(from);
           this.peerConnections.set(from, pc);
           if (this.localStream) {
-            this.localStream
-              .getTracks()
-              .forEach((track) => pc!.addTrack(track, this.localStream!));
+            const tracks = this.localStream.getTracks();
+            console.log(`[CallManager] offer: 加入本地 tracks → from=${from}, tracks:`, tracks.map(t => `${t.kind}(${t.readyState})`));
+            tracks.forEach((track) => pc!.addTrack(track, this.localStream!));
+          } else {
+            console.warn(`[CallManager] offer: localStream 為 null，不加入任何 track！`);
           }
           // 發起通話方（Caller）在此才建立 PeerConnection，
           // 原本 initiateCall() 只發送信令而未加入 activeCalls，
@@ -323,6 +353,7 @@ export class CallManager {
               status: "connecting",
               startTime: Date.now(),
             });
+            console.log(`[CallManager] offer: 補建 activeCalls → from=${from}, callType=${callType}`);
           }
         }
 
@@ -331,22 +362,33 @@ export class CallManager {
         );
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        console.log(`[CallManager] answer 已建立並設為 local description → to=${from}`);
 
         this.wsManager.send("webrtc_signal", {
           from: this.playerId,
           to: from,
           data: { type: "answer", sdp: answer.sdp },
         });
+        console.log(`[CallManager] answer 已透過 WS 送出 → to=${from}`);
       } else if (signalData.type === "answer") {
+        console.log(`[CallManager] 收到 answer → from=${from}`);
         const pc = this.peerConnections.get(from);
-        if (pc)
+        if (pc) {
           await pc.setRemoteDescription(
             new RTCSessionDescription({ type: "answer", sdp: signalData.sdp }),
           );
+          console.log(`[CallManager] answer 設為 remote description 完成 → from=${from}`);
+        } else {
+          console.warn(`[CallManager] 收到 answer 但找不到 PeerConnection → from=${from}`);
+        }
       } else if (signalData.type === "candidate" && signalData.candidate) {
         const pc = this.peerConnections.get(from);
-        if (pc)
+        if (pc) {
           await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+          console.log(`[CallManager] ICE candidate 加入成功 → from=${from}`);
+        } else {
+          console.warn(`[CallManager] 收到 ICE candidate 但找不到 PeerConnection → from=${from}`);
+        }
       }
     } catch (error) {
       console.error("Error handling WebRTC signal:", error);
