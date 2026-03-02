@@ -1,0 +1,16 @@
+# 排除建構產物，避免快取汙染
+target/
+
+# 排除 IDE 設定檔
+.idea/
+*.iml
+.vscode/
+
+# 排除本地環境設定（機密資訊不應進入映像檔）
+.env
+.env.local
+
+# 排除版本控制與文件
+.git/
+.gitignore
+README.md

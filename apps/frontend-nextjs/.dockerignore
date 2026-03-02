@@ -1,0 +1,18 @@
+# 排除 Next.js 建構產物與快取
+.next/
+out/
+
+# 排除依賴目錄（容器內會重新安裝）
+node_modules/
+
+# 排除本地環境設定（機密資訊不應進入映像檔）
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 排除版本控制與文件
+.git/
+.gitignore
+README.md
