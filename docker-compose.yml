@@ -9,7 +9,8 @@ services:
     environment:
       - PORT=8080
       # 透過 host.docker.internal 連接宿主機上由另一個 Docker 啟動的 MongoDB
-      - MONGODB_URI=mongodb://host.docker.internal:27017/spatialmeet
+      # 若 MongoDB 啟用驗證，格式為 mongodb://帳號:密碼@host.docker.internal:27017/spatialmeet?authSource=admin
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@host.docker.internal:27017/spatialmeet?authSource=admin
       - JWT_SECRET=NWtI0DCq4qI4xb8qbNBU54HVHTZoF8P3qb9055qUDIRKJ0CEtdUuwjm0FiI6H5RY
       - ADMIN_PASSWORD=admin
       # CORS 允許來自 frontend 容器與本地瀏覽器的請求
