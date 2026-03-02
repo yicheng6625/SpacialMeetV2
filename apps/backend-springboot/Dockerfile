@@ -13,8 +13,9 @@ COPY src ./src
 RUN mvn clean package -DskipTests -B
 
 # ===== 執行階段 =====
-# 使用較小的 JRE Alpine 映像檔，減少最終映像檔大小
-FROM eclipse-temurin:17-jre-alpine
+# 使用 Jammy（Ubuntu 22.04）版本，同時支援 AMD64 與 ARM64（Apple Silicon）
+# alpine 變體僅支援 AMD64，在 M 系列 Mac 上會建構失敗
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 
